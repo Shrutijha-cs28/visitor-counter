@@ -39,7 +39,8 @@ Expected output:
 {"cluster":"docker-compose","message":"Visitor Counter","served_by_pod":"4d6f8a9e1b2c","visits":1}
 {"cluster":"docker-compose","message":"Visitor Counter","served_by_pod":"4d6f8a9e1b2c","visits":2}
 ```
-*(Take screenshot of terminal showing `docker compose ps` and `curl` increments)*
+### 1.4 Task 1 Verification Screenshot
+![Task 1 Verification Screenshot](screenshots/task1-docker-compose.png)
 
 ---
 
@@ -87,7 +88,8 @@ redis-76c84c6c9b-x82jl   1/1     Running   0          95s
 web-5d7d9f78bc-q7t3k     1/1     Running   0          7s
 web-5d7d9f78bc-z8w4r     1/1     Running   0          95s
 ```
-*(Notice a replacement pod `web-5d7d9f78bc-q7t3k` was immediately spawned to maintain the 2 replicas requirement).*
+### 2.4 Task 2 Verification Screenshot
+![Task 2 Verification Screenshot](screenshots/task2-k8s-self-healing.png)
 
 ---
 
@@ -116,7 +118,8 @@ web-hpa   Deployment/web   92%/50%         2         6         6          3m15s
 web-hpa   Deployment/web   22%/50%         2         6         6          5m (load ended)
 web-hpa   Deployment/web   11%/50%         2         6         2          9m (stabilized)
 ```
-*(Take screenshot of terminal showing the HPA scaling from 2 -> 4 -> 6 replicas).*
+### 3.3 Task 3 Verification Screenshot
+![Task 3 Verification Screenshot](screenshots/task3-hpa-scaling.png)
 
 ---
 
@@ -149,7 +152,8 @@ Expected response:
 ```json
 {"cluster":"public-cluster","message":"Visitor Counter","served_by_pod":"web-78bf5f-x9lm2","visits":1}
 ```
-*(Notice the cluster field seamlessly switched from `private-cluster` to `public-cluster` with zero downtime).*
+### 4.5 Task 4 Verification Screenshot
+![Task 4 Verification Screenshot](screenshots/task4-hybrid-failover.png)
 
 ### 4.4 Restore Private Cluster
 ```bash
@@ -182,3 +186,6 @@ web-5d7d9f78bc-z8w4r   7m           28Mi
 NAME   READY   UP-TO-DATE   AVAILABLE   AGE
 web    2/2     2            2           15m
 ```
+
+### 5.2 Task 5 Verification Screenshot
+![Task 5 Verification Screenshot](screenshots/task5-cost-optimization.png)

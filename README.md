@@ -5,6 +5,8 @@ run across two clusters (private + simulated public) with failover, and cost-opt
 
 ## Architecture
 
+![Architecture Diagram](docs/screenshots/architecture-diagram.png)
+
 ```mermaid
 flowchart LR
     U[User] --> LB[nginx front door :8080<br/>primary + backup upstream]
@@ -32,7 +34,9 @@ docker compose up --build
 curl localhost:5000        # visits increments on each call
 docker compose down
 ```
-Screenshot: `docker compose ps` and the curl output.
+
+### Task 1 Screenshot:
+![Task 1 - Docker Compose Verification](docs/screenshots/task1-docker-compose.png)
 
 ## Task 2: Deploy on Kubernetes (2 replicas, requests/limits, readiness probe, self-healing)
 ```bash
@@ -49,7 +53,9 @@ kubectl get pods
 kubectl delete pod <one-web-pod-name>
 kubectl get pods -w        # a replacement pod appears automatically
 ```
-Screenshots: pods before delete, pods during/after (new pod, new name), `kubectl describe deploy web` showing probe/resources.
+
+### Task 2 Screenshot:
+![Task 2 - Kubernetes Self-Healing Verification](docs/screenshots/task2-k8s-self-healing.png)
 
 ## Task 3: Horizontal Pod Autoscaler (min 2, max 6, 50% CPU)
 HPA needs metrics-server. On kind:
@@ -68,6 +74,9 @@ bash scripts/load.sh                # terminal 3: generates load for ~4 min
 Expected: CPU rises above 50%, replicas scale 2 -> up to 6; after load stops, scale back down (takes ~5 min stabilization).
 Use `docs/hpa-log.csv` for the replica-vs-time table/graph.
 
+### Task 3 Screenshot:
+![Task 3 - HPA Scaling Verification](docs/screenshots/task3-hpa-scaling.png)
+
 ## Task 4: Hybrid cloud + failover
 Private cluster = kind `private`; public cloud = kind `public` (simulated, allowed by the assignment).
 ```bash
@@ -77,6 +86,9 @@ bash scripts/failover-demo.sh  # stops private cluster; responses now show "publ
 ```
 Screenshots: before (cluster=private-cluster), `docker stop private-control-plane`, after (cluster=public-cluster).
 (Optional real public cloud: deploy the same `k8s/` manifests to GKE/EKS/AKS free tier and change the nginx backup upstream to its external IP.)
+
+### Task 4 Screenshot:
+![Task 4 - Hybrid Cloud Failover Verification](docs/screenshots/task4-hybrid-failover.png)
 
 ## Task 5: Cost optimization (measure before/after)
 Techniques applied (at least three):
@@ -95,6 +107,9 @@ Autoscaling baseline: `kubectl scale deploy/web --replicas=6` (no HPA) vs HPA wi
 
 Cost model (state these assumptions in your report; use any consistent price, e.g. your cloud's):
 `monthly cost = replicas x (cpu_request_cores x $/vCPU-hr + mem_request_GB x $/GB-hr) x 730 hr`
+
+### Task 5 Screenshot:
+![Task 5 - Cost Optimization Verification](docs/screenshots/task5-cost-optimization.png)
 
 ### Before / After Measured Values Table
 | Technique | Metric | Before (Baseline) | After (Optimized) | Saving / Improvement |
