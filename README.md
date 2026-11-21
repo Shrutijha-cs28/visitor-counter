@@ -25,8 +25,15 @@ flowchart LR
 Note: each cluster has its own Redis, so the counter is per-cluster. Mention this in your report as a known
 limitation (production fix: managed/replicated Redis).
 
+> **Hybrid Cloud Environment Declaration**: The hybrid cloud deployment for Task 4 was **simulated locally on the laptop** using two isolated Kubernetes clusters (`private-cluster` and `public-cluster`) via Minikube profiles / kind, with an NGINX reverse proxy front-door providing failover, in accordance with the project instructions.
+
 ## Prerequisites
-Docker, kubectl, kind (https://kind.sigs.k8s.io). Check: `docker version && kubectl version --client && kind version`
+Docker, kubectl, and Minikube (or kind). Check installation:
+```bash
+docker version
+kubectl version --client
+minikube version  # or: kind version
+```
 
 ## Task 1: Containerize + run with Docker Compose
 ```bash
@@ -39,14 +46,18 @@ docker compose down
 ![Task 1 - Docker Compose Verification](docs/screenshots/task1-docker-compose.png)
 
 ## Task 2: Deploy on Kubernetes (2 replicas, requests/limits, readiness probe, self-healing)
+
+**Using Minikube:**
 ```bash
-kind create cluster --name private
+minikube start -p private-cluster
 docker build -t visitor-counter:1.0 ./app
-kind load docker-image visitor-counter:1.0 --name private
+minikube image load visitor-counter:1.0 -p private-cluster
 kubectl apply -f k8s/redis.yaml -f k8s/web.yaml
 kubectl get pods -o wide
-kubectl port-forward svc/web 8000:80 &   # then: curl localhost:8000
+minikube service web -p private-cluster --url  # or: kubectl port-forward svc/web 8000:80
 ```
+
+*(Alternatively, using kind: `kind create cluster --name private && kind load docker-image visitor-counter:1.0 --name private`)*
 Self-healing demo:
 ```bash
 kubectl get pods
@@ -78,14 +89,21 @@ Use `docs/hpa-log.csv` for the replica-vs-time table/graph.
 ![Task 3 - HPA Scaling Verification](docs/screenshots/task3-hpa-scaling.png)
 
 ## Task 4: Hybrid cloud + failover
-Private cluster = kind `private`; public cloud = kind `public` (simulated, allowed by the assignment).
+
+> **Simulation Statement**: This environment was simulated locally on the laptop using two separate Kubernetes clusters (`private-cluster` and `public-cluster`) via Minikube profiles / kind with an NGINX front-door proxy, satisfying the hybrid deployment and failover requirements without incurring cloud expenses.
+
+**Option A: Automated Minikube Simulation**
 ```bash
-bash scripts/hybrid-up.sh      # builds, creates both clusters, deploys, starts nginx on :8080
-curl localhost:8080            # JSON shows "cluster": "private-cluster"
-bash scripts/failover-demo.sh  # stops private cluster; responses now show "public-cluster"
+bash scripts/minikube-hybrid-up.sh    # or: .\scripts\minikube-hybrid-up.ps1
 ```
-Screenshots: before (cluster=private-cluster), `docker stop private-control-plane`, after (cluster=public-cluster).
-(Optional real public cloud: deploy the same `k8s/` manifests to GKE/EKS/AKS free tier and change the nginx backup upstream to its external IP.)
+
+**Option B: Automated Kind Simulation**
+```bash
+bash scripts/hybrid-up.sh             # builds, creates both clusters, deploys, starts nginx on :8080
+curl localhost:8080                   # JSON shows "cluster": "private-cluster"
+bash scripts/failover-demo.sh         # stops private cluster; responses now show "public-cluster"
+```
+Screenshots: before (cluster=private-cluster), `docker stop private-control-plane` (or `minikube stop -p private-cluster`), after (cluster=public-cluster).
 
 ### Task 4 Screenshot:
 ![Task 4 - Hybrid Cloud Failover Verification](docs/screenshots/task4-hybrid-failover.png)
