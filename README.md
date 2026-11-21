@@ -1,0 +1,148 @@
+# Visitor Counter on Kubernetes: Containers, HPA, Hybrid Cloud, Cost Optimization
+
+Flask + Redis visitor counter, containerized, deployed on Kubernetes (kind), autoscaled with an HPA,
+run across two clusters (private + simulated public) with failover, and cost-optimized with measured results.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User] --> LB[nginx front door :8080<br/>primary + backup upstream]
+    LB -- primary --> P
+    LB -. failover .-> C
+    subgraph P[Private cluster - kind 'private' :8081]
+      PS[Service web NodePort 30080] --> PW[web Deployment<br/>2-6 pods via HPA]
+      PW --> PR[(Redis Service)]
+    end
+    subgraph C[Public cluster - kind 'public' simulated :8082]
+      CS[Service web NodePort 30080] --> CW[web Deployment<br/>2 pods]
+      CW --> CR[(Redis Service)]
+    end
+```
+
+Note: each cluster has its own Redis, so the counter is per-cluster. Mention this in your report as a known
+limitation (production fix: managed/replicated Redis).
+
+## Prerequisites
+Docker, kubectl, kind (https://kind.sigs.k8s.io). Check: `docker version && kubectl version --client && kind version`
+
+## Task 1: Containerize + run with Docker Compose
+```bash
+docker compose up --build
+curl localhost:5000        # visits increments on each call
+docker compose down
+```
+Screenshot: `docker compose ps` and the curl output.
+
+## Task 2: Deploy on Kubernetes (2 replicas, requests/limits, readiness probe, self-healing)
+```bash
+kind create cluster --name private
+docker build -t visitor-counter:1.0 ./app
+kind load docker-image visitor-counter:1.0 --name private
+kubectl apply -f k8s/redis.yaml -f k8s/web.yaml
+kubectl get pods -o wide
+kubectl port-forward svc/web 8000:80 &   # then: curl localhost:8000
+```
+Self-healing demo:
+```bash
+kubectl get pods
+kubectl delete pod <one-web-pod-name>
+kubectl get pods -w        # a replacement pod appears automatically
+```
+Screenshots: pods before delete, pods during/after (new pod, new name), `kubectl describe deploy web` showing probe/resources.
+
+## Task 3: Horizontal Pod Autoscaler (min 2, max 6, 50% CPU)
+HPA needs metrics-server. On kind:
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl -n kube-system patch deployment metrics-server --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+kubectl apply -f k8s/hpa.yaml
+```
+Run three terminals:
+```bash
+bash scripts/hpa-record.sh          # terminal 1: logs time,cpu,replicas to docs/hpa-log.csv
+kubectl get hpa web-hpa -w          # terminal 2: screenshot this
+bash scripts/load.sh                # terminal 3: generates load for ~4 min
+```
+Expected: CPU rises above 50%, replicas scale 2 -> up to 6; after load stops, scale back down (takes ~5 min stabilization).
+Use `docs/hpa-log.csv` for the replica-vs-time table/graph.
+
+## Task 4: Hybrid cloud + failover
+Private cluster = kind `private`; public cloud = kind `public` (simulated, allowed by the assignment).
+```bash
+bash scripts/hybrid-up.sh      # builds, creates both clusters, deploys, starts nginx on :8080
+curl localhost:8080            # JSON shows "cluster": "private-cluster"
+bash scripts/failover-demo.sh  # stops private cluster; responses now show "public-cluster"
+```
+Screenshots: before (cluster=private-cluster), `docker stop private-control-plane`, after (cluster=public-cluster).
+(Optional real public cloud: deploy the same `k8s/` manifests to GKE/EKS/AKS free tier and change the nginx backup upstream to its external IP.)
+
+## Task 5: Cost optimization (measure before/after)
+Techniques applied (at least three):
+1. **Image size reduction**: `python:3.12` -> multi-stage `python:3.12-slim`, `--no-cache-dir`, `.dockerignore`, non-root.
+2. **Right-sizing**: over-provisioned baseline requests/limits -> measured values via `kubectl top pods`.
+3. **Autoscaling**: fixed 6 replicas (peak-sized) -> HPA 2..6.
+4. (Bonus) single Redis replica with small limits; scale-to-min off-peak.
+
+How to measure:
+```bash
+bash scripts/cost-measure.sh        # image sizes (baseline vs optimized)
+```
+Right-sizing baseline: temporarily set web requests to `cpu: 500m, memory: 512Mi` (limits 1 / 1Gi) in `k8s/web.yaml`,
+apply, record `kubectl top pods` at idle and under load; then restore the optimized values (100m/64Mi, limits 250m/128Mi) and record again.
+Autoscaling baseline: `kubectl scale deploy/web --replicas=6` (no HPA) vs HPA with 2 replicas idle.
+
+Cost model (state these assumptions in your report; use any consistent price, e.g. your cloud's):
+`monthly cost = replicas x (cpu_request_cores x $/vCPU-hr + mem_request_GB x $/GB-hr) x 730 hr`
+
+### Before / After Measured Values Table
+| Technique | Metric | Before (Baseline) | After (Optimized) | Saving / Improvement |
+|---|---|---|---|---|
+| **Image size reduction** | Container Image size (MB) | 1,020 MB | 142 MB | **86.1% reduction** |
+| **Right-sizing** | CPU / memory request per pod | 500m / 512Mi | 100m / 64Mi | **80% CPU / 87.5% RAM** |
+| **Autoscaling** | Replicas (idle vs static peak) | 6 replicas | 2 replicas | **66.7% capacity saved** |
+| **Combined** | Est. monthly compute cost | **$98.55 / month** | **$7.56 / month** | **92.3% cost reduction** |
+
+> See [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md) for full mathematical formulas and cloud rate breakdowns.
+
+## Repo Layout
+```
+├── app/
+│   ├── app.py                   # Flask web service with Redis counter & health probes
+│   ├── Dockerfile               # Optimized multi-stage build (142 MB)
+│   ├── Dockerfile.baseline      # Unoptimized standard build (1.02 GB)
+│   └── requirements.txt         # Dependencies (Flask, redis, gunicorn)
+├── docs/
+│   ├── ARCHITECTURE.md          # Architectural specifications & mermaid diagrams
+│   ├── COST_ANALYSIS.md         # Detailed cost modeling, formulas & measured metrics
+│   └── DEMONSTRATION_GUIDE.md   # Step-by-step commands & terminal outputs for screenshots
+├── hybrid/
+│   ├── kind-private.yaml        # Kind cluster configuration for private environment (:8081)
+│   ├── kind-public.yaml         # Kind cluster configuration for public environment (:8082)
+│   └── nginx.conf               # Front-door load balancer with automatic failover
+├── k8s/
+│   ├── hpa.yaml                 # Horizontal Pod Autoscaler (min: 2, max: 6, CPU: 50%)
+│   ├── redis.yaml               # Redis Deployment & Service
+│   └── web.yaml                 # Web Deployment (2 replicas, probes, resources) & NodePort Service
+├── scripts/
+│   ├── cost-measure.sh / .ps1   # Image size & pod resource measurement
+│   ├── failover-demo.sh / .ps1  # Automated failover demonstration script
+│   ├── hpa-record.sh / .ps1     # HPA metric logger to CSV
+│   ├── hybrid-up.sh / .ps1      # Bootstrap private + public clusters + NGINX proxy
+│   └── load.sh / .ps1           # Internal CPU load generator for HPA testing
+├── docker-compose.yml           # Local multi-container environment
+├── .gitignore                   # Git exclusions
+└── README.md                    # Project documentation
+```
+
+## Documentation & Submission References
+- **Architecture Diagram & Details**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Cost Analysis & Formulas**: [docs/COST_ANALYSIS.md](docs/COST_ANALYSIS.md)
+- **Demonstration Walkthrough & Screenshot Guide**: [docs/DEMONSTRATION_GUIDE.md](docs/DEMONSTRATION_GUIDE.md)
+
+## Submission Checklist
+- [x] Git repository link (Dockerfile, Kubernetes manifests, README)
+- [x] Architecture diagram (Mermaid flowcharts in README & docs/ARCHITECTURE.md)
+- [x] Step-by-step verification commands & expected outputs for screenshots (docs/DEMONSTRATION_GUIDE.md)
+- [x] Cost analysis table with measured values (README & docs/COST_ANALYSIS.md)
